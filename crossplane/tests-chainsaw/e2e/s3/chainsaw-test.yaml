@@ -1,0 +1,418 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: s3-test
+  labels:
+    resource: s3
+    type: unit
+spec:
+  concurrent: true
+  timeouts:
+    apply: 2m
+  steps:
+    - try:
+        - apply:
+            # apply definition
+            file: ../../../apis/s3/definition.yaml
+        - wait:
+            # wait for definition to be established
+            apiVersion: apiextensions.crossplane.io/v1
+            kind: CompositeResourceDefinition
+            name: xstorages.devopsidiot.com
+            timeout: 5m
+            for:
+              condition:
+                name: Established
+                value: "true"
+      catch:
+        - describe:
+            # in case of error, describe definition
+            apiVersion: apiextensions.crossplane.io/v1
+            kind: CompositeResourceDefinition
+            name: xstorages.devopsidiot.com
+    - try:
+        - apply:
+            # apply composition
+            file: ../../../apis/s3/composition.yaml
+        - assert:
+            resource:
+              apiVersion: apiextensions.crossplane.io/v1
+              kind: Composition
+              metadata:
+                (uid != null): true
+      catch:
+        - describe:
+            # in case of error, describe composition
+            apiVersion: apiextensions.crossplane.io/v1
+            kind: Composition
+            name: doi-s3-bucket
+    - try:
+        - apply:
+            # apply claim
+            file: ../../../examples/s3/basic.yaml
+        - wait:
+            # wait for claim to exist
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: XStorage
+            timeout: 5m
+            selector: crossplane.io/claim-name=doi-s3-bucket-test
+            for:
+              condition:
+                name: Synced
+                value: "true"
+        - assert:
+            resource:
+              apiVersion: devopsidiot.com/v1alpha1
+              kind: Storage
+              metadata:
+                (uid != null): true
+                name: doi-s3-bucket-test
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: Bucket
+              metadata:
+                (contains(name, 'doi-s3-bucket-test-')): true
+              spec:
+                forProvider:
+                  region: us-west-2
+                  tags:
+                    tenant: doi
+                    team: pipeline
+                    service: crossplane
+                    environment: dev
+                    crossplane-managed: "true"
+      catch:
+        - describe:
+            # in case of error, describe composition
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: Storage
+        - describe:
+            # in case of error, describe composition
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: Bucket
+    - try:
+        - apply:
+            file: resources/notification-claim.yaml
+        - wait:
+            # wait for claim to exist
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: XStorage
+            timeout: 5m
+            selector: crossplane.io/claim-name=doi-s3-bucket-test2
+            for:
+              condition:
+                name: Synced
+                value: "true"
+        - assert:
+            resource:
+              apiVersion: devopsidiot.com/v1alpha1
+              kind: Storage
+              metadata:
+                (uid != null): true
+                name: doi-s3-bucket-test2
+                namespace: ($namespace)
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: Bucket
+              metadata:
+                (contains(name, 'doi-s3-bucket-test2-')): true
+              spec:
+                forProvider:
+                  region: us-west-2
+                  tags:
+                    tenant: doi
+                    team: pipeline
+                    service: crossplane
+                    environment: dev
+                    crossplane-managed: "true"
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: BucketNotification
+              metadata:
+                (contains(name, 'doi-s3-bucket-test2-')): true
+              spec:
+                forProvider:
+                  bucketSelector:
+                    matchControllerRef: true
+                  queue:
+                    - events:
+                        - s3:ObjectCreated:*
+                        - s3:ObjectRemoved:*
+                      filterPrefix: queuetest1/
+                      filterSuffix: .jpg
+                      id: queue-test-one
+                      queueArn: arn:aws:sqs:us-west-2:927256257993:elitest
+                    - events:
+                        - s3:ObjectCreated:*
+                        - s3:ObjectRemoved:*
+                      filterPrefix: queuetest2/
+                      filterSuffix: .jpg
+                      id: queue-test-two
+                      queueArn: arn:aws:sqs:us-west-2:927256257993:elitest2
+                  topic:
+                    - events:
+                        - s3:ObjectCreated:*
+                      filterPrefix: topic1/
+                      filterSuffix: .txt
+                      id: topic1
+                      topicArn: arn:aws:sns:us-west-2:927256257993:elitest
+                    - events:
+                        - s3:ObjectCreated:*
+                      filterPrefix: topic2/
+                      filterSuffix: .txt
+                      id: topic2
+                      topicArn: arn:aws:sns:us-west-2:927256257993:elitest2
+                    - events:
+                        - s3:ObjectCreated:*
+                      filterPrefix: topic3/
+                      filterSuffix: .txt
+                      id: topic3
+                      topicArn: arn:aws:sns:us-west-2:927256257993:elitest3
+    - try:
+        - apply:
+            file: resources/lifecycle-claim.yaml
+        - wait:
+            # wait for claim to exist
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: XStorage
+            timeout: 5m
+            selector: crossplane.io/claim-name=doi-s3-bucket-test-lifecycle
+            for:
+              condition:
+                name: Synced
+                value: "true"
+        - assert:
+            resource:
+              apiVersion: devopsidiot.com/v1alpha1
+              kind: Storage
+              metadata:
+                (uid != null): true
+                name: doi-s3-bucket-test-lifecycle
+                namespace: ($namespace)
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: Bucket
+              metadata:
+                (contains(name, 'doi-s3-bucket-test-lifecycle-')): true
+              spec:
+                forProvider:
+                  region: us-west-2
+                  tags:
+                    tenant: doi
+                    team: pipeline
+                    service: crossplane
+                    environment: dev
+                    crossplane-managed: "true"
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: BucketLifecycleConfiguration
+              metadata:
+                (contains(name, 'doi-s3-bucket-test-lifecycle-')): true
+              spec:
+                forProvider:
+                  bucketSelector:
+                    matchControllerRef: true
+                  rule:
+                    - id: transition-rule
+                      status: Enabled
+                      filter:
+                        - prefix: /ess/test
+                      transition:
+                        - days: 15
+                          storageClass: GLACIER
+                    - id: expiration-rule
+                      status: Enabled
+                      filter:
+                        - prefix: /ess/test
+                      expiration:
+                        - days: 15
+                          expiredObjectDeleteMarker: true
+                    - id: noncurrent-transition-rule
+                      status: Enabled
+                      filter:
+                        - prefix: /ess/test
+                      noncurrentVersionTransition:
+                        - noncurrentDays: 15
+                          storageClass: GLACIER
+                    - id: noncurrent-expiration-rule
+                      status: Enabled
+                      filter:
+                        - prefix: /ess/test
+                      noncurrentVersionExpiration:
+                        - noncurrentDays: 15
+                    - id: abortmultipart-rule
+                      status: Enabled
+                      filter:
+                        - prefix: /ess/test
+                      abortIncompleteMultipartUpload:
+                        - daysAfterInitiation: 2
+      catch:
+        - describe:
+            # in case of error, describe composition
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: Storage
+            name: de-s3-bucketpolicy-test
+        - describe:
+            # in case of error, describe composition
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketLifecycleConfiguration
+            selector: crossplane.io/claim-name=doi-s3-bucketpolicy-test
+
+    - try:
+        - apply:
+            # apply claim
+            file: ../../../examples/s3/with_bucketPolicy.yaml
+        - wait:
+            # wait for claim to exist
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: XStorage
+            timeout: 5m
+            selector: crossplane.io/claim-name=doi-s3-bucketpolicy-test
+            for:
+              condition:
+                name: Synced
+                value: "true"
+        - assert:
+            resource:
+              apiVersion: devopsidiot.com/v1alpha1
+              kind: Storage
+              metadata:
+                (uid != null): true
+                name: doi-s3-bucketpolicy-test
+                namespace: ($namespace)
+              # we verify the actual value later, for now just make sure it exists
+              spec:
+                (bucketPolicy != null): true
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: Bucket
+              metadata:
+                (contains(name, 'doi-s3-bucketpolicy-test-')): true
+              spec:
+                forProvider:
+                  region: us-west-2
+                  tags:
+                    tenant: doi
+                    team: pipeline
+                    service: crossplane
+                    environment: dev
+                    crossplane-managed: "true"
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: BucketPolicy
+              metadata:
+                (contains(name, 'doi-s3-bucketpolicy-test-')): true
+              spec:
+                forProvider:
+                  policy: |
+                    {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                        {
+                          "Sid": "DemoPolicy",
+                          "Effect": "Allow",
+                          "Principal": "*",
+                          "Action": [
+                            "s3:GetObject",
+                            "s3:ListBucket"
+                          ],
+                          "Resource": [
+                            "arn:aws:s3:::doi-s3-bucketpolicy",
+                            "arn:aws:s3:::doi-s3-bucketpolicy/*"
+                          ]
+                        }
+                      ]
+                    }
+                  region: us-west-2
+      catch:
+        - describe:
+            # in case of error, describe composition
+            apiVersion: devopsidiot.com/v1alpha1
+            name: doi-s3-bucketpolicy-test
+            kind: Storage
+        - describe:
+            # in case of error, describe composition
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketPolicy
+            selector: crossplane.io/claim-name=doi-s3-bucketpolicy-test
+
+    - try:
+        - apply:
+            # apply claim
+            file: ../../../examples/s3/with_replicationBlock.yaml
+        - wait:
+            # wait for claim to exist
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: XStorage
+            timeout: 5m
+            selector: crossplane.io/claim-name=doi-s3-bucketreplication-test
+            for:
+              condition:
+                name: Synced
+                value: "true"
+        - assert:
+            resource:
+              apiVersion: devopsidiot.com/v1alpha1
+              kind: Storage
+              metadata:
+                (uid != null): true
+                name: doi-s3-bucketreplication-test
+                namespace: ($namespace)
+              spec:
+                # we verify the actual value later, for now just make sure it exists
+                (bucketReplicationConfiguration != null): true
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: Bucket
+              metadata:
+                (contains(name, 'doi-s3-bucketpolicy-test-')): true
+              spec:
+                forProvider:
+                  region: us-west-2
+                  tags:
+                    tenant: doi
+                    team: pipeline
+                    service: crossplane
+                    environment: dev
+                    crossplane-managed: "true"
+        - assert:
+            resource:
+              apiVersion: s3.aws.upbound.io/v1beta2
+              kind: BucketReplicationConfiguration
+              metadata:
+                (contains(name, 'doi-s3-bucketreplication-test-')): true
+              spec:
+                forProvider:
+                  region: us-west-2
+                  role: sampleawsrole
+                  rule:
+                    - deleteMarkerReplication:
+                        status: Enabled
+                      destination:
+                        bucketSelector:
+                          matchLabels:
+                            testing.upbound.io/example-name: s3
+                        storageClass: STANDARD
+                      filter:
+                        prefix: foo
+                      id: foobar
+                      status: Enabled
+      catch:
+        - describe:
+            # in case of error, describe composition
+            apiVersion: devopsidiot.com/v1alpha1
+            name: doi-s3-bucketreplication-test
+            kind: Storage
+        - describe:
+            # in case of error, describe composition
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketReplicationConfiguration
+            selector: crossplane.io/claim-name=doi-s3-bucketreplication-test

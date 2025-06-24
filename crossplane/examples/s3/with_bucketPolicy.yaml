@@ -1,0 +1,32 @@
+apiVersion: devopsidiot.com/v1alpha1
+kind: Storage
+metadata:
+  name: doi-s3-bucketpolicy-test
+spec:
+  bucketName: doi-s3-bucketpolicy
+  bucketPolicy: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "DemoPolicy",
+          "Effect": "Allow",
+          "Principal": "*",
+          "Action": [
+            "s3:GetObject",
+            "s3:ListBucket"
+          ],
+          "Resource": [
+            "arn:aws:s3:::doi-s3-bucketpolicy",
+            "arn:aws:s3:::doi-s3-bucketpolicy/*"
+          ]
+        }
+      ]
+    }
+  region: us-west-2
+  tags:
+    tenant: doi
+    team: pipeline
+    service: crossplane
+    environment: dev
+    crossplane-managed: "true"

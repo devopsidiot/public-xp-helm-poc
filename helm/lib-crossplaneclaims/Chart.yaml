@@ -1,0 +1,9 @@
+apiVersion: v2
+name: lib-crossplaneclaims
+description: A Library Helm chart that helps configure Crossplane claims.
+type: library
+version: 0.18.0
+appVersion: "0.0.1"
+maintainers:
+  - name: DanShepard
+    email: dan.shepard@devopsidiot.com

@@ -1,0 +1,21 @@
+apiVersion: devopsidiot.com/v1alpha1
+kind: Storage
+metadata:
+  name: doi-s3-bucketreplication-test
+spec:
+  bucketName: doi-s3-bucketreplication-test
+  region: us-west-2
+  bucketReplicationConfiguration:
+    role: sampleawsrole
+    rule:
+      - deleteMarkerReplication:
+          status: Enabled
+        destination:
+          bucketSelector:
+            matchLabels:
+              testing.upbound.io/example-name: s3
+          storageClass: STANDARD
+        filter:
+          prefix: foo
+        id: foobar
+        status: Enabled

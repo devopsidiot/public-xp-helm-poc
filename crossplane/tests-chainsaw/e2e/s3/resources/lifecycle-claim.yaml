@@ -1,0 +1,47 @@
+apiVersion: devopsidiot.com/v1alpha1
+kind: Storage
+metadata:
+  name: doi-s3-bucket-test-lifecycle
+spec:
+  bucketName: doi-s3-bucket-lifecycle
+  region: us-west-2
+  lifecycleRules:
+    - id: transition-rule
+      status: Enabled
+      filter:
+        - prefix: /ess/test
+      transition:
+        - days: 15
+          storageClass: GLACIER
+    - id: expiration-rule
+      status: Enabled
+      filter:
+        - prefix: /ess/test
+      expiration:
+        - days: 15
+          expiredObjectDeleteMarker: true
+    - id: noncurrent-transition-rule
+      status: Enabled
+      filter:
+        - prefix: /ess/test
+      noncurrentVersionTransition:
+        - noncurrentDays: 15
+          storageClass: GLACIER
+    - id: noncurrent-expiration-rule
+      status: Enabled
+      filter:
+        - prefix: /ess/test
+      noncurrentVersionExpiration:
+        - noncurrentDays: 15
+    - id: abortmultipart-rule
+      status: Enabled
+      filter:
+        - prefix: /ess/test
+      abortIncompleteMultipartUpload:
+        - daysAfterInitiation: 2
+  tags:
+    tenant: doi
+    team: pipeline
+    service: crossplane
+    environment: dev
+    crossplane-managed: "true"

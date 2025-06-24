@@ -1,0 +1,458 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: doi-s3-bucket
+  annotations:
+    crossplane.io/composition-schema-aware-validation-mode: loose
+spec:
+  compositeTypeRef:
+    apiVersion: devopsidiot.com/v1alpha1
+    kind: XStorage
+  mode: Pipeline
+  pipeline:
+    - step: environmentConfigs
+      functionRef:
+        name: crossplane-contrib-function-environment-configs
+      input:
+        apiVersion: environmentconfigs.fn.crossplane.io/v1beta1
+        kind: Input
+        spec:
+          environmentConfigs:
+          - type: Reference
+            ref:
+              name: doi-environmentconfig
+    - step: create-bucket
+      functionRef:
+        name: crossplane-contrib-function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: storage-bucket
+            base:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: Bucket
+              metadata:
+                annotations:
+                  crossplane.io/external-name: set-by-claim
+              spec:
+                forProvider: {}
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: "spec.region"
+                toFieldPath: "spec.forProvider.region"
+              - type: FromCompositeFieldPath
+                fromFieldPath: "spec.tags"
+                toFieldPath: "spec.forProvider.tags"
+              - type: FromCompositeFieldPath
+                fromFieldPath: "spec.bucketName"
+                toFieldPath: "metadata.annotations['crossplane.io/external-name']"
+
+    - step: bucket-configuration
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketVersioning
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketVersioning" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ .observed.composite.resource.spec.region }}
+                versioningConfiguration:
+                  - status: {{ if .observed.composite.resource.spec.versioning }}Enabled{{ else }}Disabled{{ end }}
+
+            {{- if .observed.composite.resource.spec.defaultServerSideEncryption }}
+            ---
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketServerSideEncryptionConfiguration
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketServerSideEncryptionConfiguration" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ .observed.composite.resource.spec.region }}
+                rule:
+                  - applyServerSideEncryptionByDefault:
+                      - sseAlgorithm: AES256
+            {{- end }}
+
+    - step: bucket-default-controls
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- if .observed.composite.resource.spec.defaultControlPolicy }}
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketOwnershipControls
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketOwnershipControls" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ .observed.composite.resource.spec.region }}
+                rule:
+                  - objectOwnership: ObjectWriter
+            ---
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketACL
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketACL" }}
+            spec:
+              forProvider:
+                acl: private
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ .observed.composite.resource.spec.region }}
+            ---
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketPublicAccessBlock
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketPublicAccessBlock" }}
+            spec:
+              forProvider:
+                blockPublicAcls: true
+                blockPublicPolicy: true
+                ignorePublicAcls: true
+                restrictPublicBuckets: true
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ .observed.composite.resource.spec.region }}
+            {{- end }}
+
+    - step: bucket-policies
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{/*
+            There is a default policy applied if `serviceAccount` is defined
+            A new parameter has sense been added called `bucketPolicy` for more custom access
+            The logic ensures only 1 of these policies gets created and applied at most
+            */}}
+
+            {{- $Bucket := getComposedResource . "storage-bucket" }}
+            {{- $serviceAccount := .observed.composite.resource.spec.serviceAccount }}
+            {{- $vpcEndPoint := .observed.composite.resource.spec.vpcEndPoint | default (index .context "apiextensions.crossplane.io/environment" "vpc_endpoints").s3 }}
+            {{- $awsAccounts := .observed.composite.resource.spec.awsAccounts | default (split "," (index .context "apiextensions.crossplane.io/environment" "aws_account_id")) }}
+
+            {{- if and .observed.composite.resource.spec.serviceAccount (not .observed.composite.resource.spec.bucketPolicy) }}
+            ---
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketPolicy
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketPolicy" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                policy: |
+                  {
+                    "Version": "2012-10-17",
+                    "Id" : "{{ $serviceAccount }}_mesmd_artifacts_bucket_policy",
+                    "Statement": [
+                      {
+                        "Action": "s3:*",
+                        "Principal": {
+                          "AWS": [
+                            {{- range $index, $account := $awsAccounts }}
+                            "arn:aws:iam::{{ $account }}:user/{{ $serviceAccount }}"{{ if ne (add $index 1) (len $awsAccounts) }},{{ end }}
+                            {{- end }}
+                          ]
+                        },
+                        "Effect": "Deny",
+                        "Resource": ["{{ get $Bucket.status.atProvider "arn" }}", "{{ get $Bucket.status.atProvider "arn" }}/*"],
+                        "Condition": {
+                          "StringNotEquals": {
+                            "aws:SourceVpce": "{{ $vpcEndPoint }}"
+                          }
+                        },
+                        "Sid": "AllowUserThroughVPCE"
+                      }
+                    ]
+                  }
+                region: {{ .observed.composite.resource.spec.region }}
+            {{- end }}
+
+            {{- if .observed.composite.resource.spec.bucketPolicy }}
+            ---
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketPolicy
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketPolicy" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                policy: {{ .observed.composite.resource.spec.bucketPolicy | toJson }}
+                region: {{ .observed.composite.resource.spec.region }}
+            {{- end }}
+
+    - step: bucket-notification
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- if .observed.composite.resource.spec.notifications }}
+            {{- $queueNotifications := list }}
+            {{- $topicNotifications := list }}
+            {{- range .observed.composite.resource.spec.notifications }}
+              {{- if or (hasKey . "queueArn") (hasKey . "queueLabels") }}
+                {{- $queueNotifications = append $queueNotifications . }}
+              {{- else if or (hasKey . "topicArn") (hasKey . "topicLabels") }}
+                {{- $topicNotifications = append $topicNotifications . }}
+              {{- end }}
+            {{- end }}
+
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketNotification
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketNotification" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ $.observed.composite.resource.spec.region }}
+                {{- if $queueNotifications }}
+                queue:
+                  {{- range $queueNotifications}}
+                  - events:
+                      {{- range .events }}
+                      - {{ . }}
+                      {{- end}}
+                    {{- if .filterSuffix }}
+                    filterSuffix: {{ .filterSuffix }}
+                    {{- end}}
+                    {{- if .filterPrefix}}
+                    filterPrefix: {{ .filterPrefix }}
+                    {{- end}}
+                    id: {{ .identifier }}
+                    {{- if .queueArn}}
+                    queueArn: {{ .queueArn }}
+                    {{- end}}
+                    {{- if .queueLabels}}
+                    queueArnSelector:
+                      matchLabels:
+                        {{- range $key, $value := .queueLabels}}
+                        {{ $key }}: {{ $value }}
+                        {{- end}}
+                    {{- end}}
+                  {{- end }}
+                {{- else }}
+                queue: []
+                {{- end }}
+                {{- if $topicNotifications }}
+                topic:
+                  {{- range $topicNotifications}}
+                  - events:
+                      {{- range .events}}
+                      - {{ . }}
+                      {{- end}}
+                    {{- if .filterSuffix}}
+                    filterSuffix: {{ .filterSuffix }}
+                    {{- end}}
+                    {{- if .filterPrefix}}
+                    filterPrefix: {{ .filterPrefix }}
+                    {{- end}}
+                    id: {{ .identifier }}
+                    {{- if .topicArn}}
+                    topicArn: {{ .topicArn | quote }}
+                    {{- end}}
+                    {{- if .topicLabels}}
+                    topicArnSelector:
+                      matchLabels:
+                        {{- range $key, $value := .topicLabels}}
+                        {{ $key }}: {{ $value }}
+                        {{- end}}
+                    {{- end}}
+                  {{- end }}
+                {{- else }}
+                topic: []
+                {{- end }}
+              {{- end }}
+
+    - step: bucket-lifecycle
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- if .observed.composite.resource.spec.lifecycleRules }}
+            apiVersion: s3.aws.upbound.io/v1beta1
+            kind: BucketLifecycleConfiguration
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketLifecycleConfiguration" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ $.observed.composite.resource.spec.region }}
+                rule:
+                  {{- range .observed.composite.resource.spec.lifecycleRules}}
+                  - id: {{ .id }}
+                    status: {{ .status }}
+                    {{- if .filter}}
+                    filter:
+                    {{- range .filter}}
+                      - {{- if .objectSizeGreaterThan}}
+                        objectSizeGreaterThan: {{ .objectSizeGreaterThan }}
+                        {{- end}}
+                        {{- if .objectSizeLessThan}}
+                        objectSizeLessThan: {{ .objectSizeLessThan }}
+                        {{- end}}
+                        {{- if .prefix}}
+                        prefix: {{ .prefix }}
+                        {{- end}}
+                        {{- if .tags}}
+                        tags:
+                          {{- range .tags}}
+                          - key: {{ .key }}
+                            value: {{ .value }}
+                          {{- end}}
+                        {{- end}}
+                    {{- end}}
+                    {{- end}}
+                    {{- if .abortIncompleteMultipartUpload}}
+                    abortIncompleteMultipartUpload:
+                    {{- range .abortIncompleteMultipartUpload}}
+                      - daysAfterInitiation: {{ .daysAfterInitiation }}
+                    {{- end}}
+                    {{- end}}
+                    {{- if .transition}}
+                    transition:
+                    {{- range .transition}}
+                      - storageClass: {{ .storageClass }}
+                        {{- if .days}}
+                        days: {{ .days }}
+                        {{- end}}
+                        {{- if .date}}
+                        date: {{ .date }}
+                        {{- end}}
+                    {{- end}}
+                    {{- end}}
+                    {{- if .expiration}}
+                    expiration:
+                    {{- range .expiration}}
+                      - expiredObjectDeleteMarker: {{ .expiredObjectDeleteMarker }}
+                        {{- if .days}}
+                        days: {{ .days }}
+                        {{- end}}
+                        {{- if .date}}
+                        date: {{ .date }}
+                        {{- end}}
+                    {{- end}}
+                    {{- end}}
+                    {{- if .noncurrentVersionTransition}}
+                    noncurrentVersionTransition:
+                    {{- range .noncurrentVersionTransition}}
+                      - storageClass: {{ .storageClass }}
+                        {{- if .noncurrentDays}}
+                        noncurrentDays: {{ .noncurrentDays }}
+                        {{- end}}
+                    {{- end}}
+                    {{- end}}
+                    {{- if .noncurrentVersionExpiration}}
+                    noncurrentVersionExpiration:
+                    {{- range .noncurrentVersionExpiration}}
+                      - {{- if .noncurrentDays}}
+                        noncurrentDays: {{ .noncurrentDays }}
+                        {{- end}}
+                    {{- end}}
+                    {{- end}}
+                  {{- end}}
+            {{- end }}
+
+    - step: bucket-replication-configuration
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- if .observed.composite.resource.spec.bucketReplicationConfiguration }}
+            ---
+            apiVersion: s3.aws.upbound.io/v1beta2
+            kind: BucketReplicationConfiguration
+            metadata:
+              annotations:
+                {{ setResourceNameAnnotation "BucketReplicationConfiguration" }}
+            spec:
+              forProvider:
+                bucketSelector:
+                  matchControllerRef: true
+                region: {{ .observed.composite.resource.spec.region }}
+                role: {{ .observed.composite.resource.spec.bucketReplicationConfiguration.role }}
+                rule: {{ .observed.composite.resource.spec.bucketReplicationConfiguration.rule | toYaml | nindent 6 }}
+            {{- end }}
+
+    - step: ConnectionDetails-and-Status
+      functionRef:
+        name: crossplane-contrib-function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{/*
+            This section writes back to the composition with additional information.
+            Nothing's rendered
+            */}}
+
+            {{- if .observed.resources }}
+            ---
+            apiVersion: devopsidiot.com/v1alpha1
+            kind: XStorage
+            status:
+              resources:
+              {{- range $key := .observed.resources }}
+              - name: {{ $key.resource.metadata.name }}
+                kind: {{ $key.resource.kind }}
+                conditions:
+                {{- range $condition := $key.resource.status.conditions }}
+                - type: {{ $condition.type }}
+                  status: {{ $condition.status }}
+                  reason: {{ $condition.reason }}
+                  lastTransitionTime: {{ $condition.lastTransitionTime }}
+                {{- end }}
+              {{- end }}
+            {{- end }}
+
+    - step: automatically-detect-ready-composed-resources
+      functionRef:
+        name: crossplane-contrib-function-auto-ready

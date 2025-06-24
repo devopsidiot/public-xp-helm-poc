@@ -1,0 +1,403 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xstorages.devopsidiot.com
+spec:
+  defaultCompositeDeletePolicy: Foreground
+  group: devopsidiot.com
+  names:
+    kind: XStorage
+    plural: xstorages
+  claimNames:
+    kind: Storage
+    plural: storages
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                bucketName:
+                  description: "sets the name of the s3 bucket"
+                  type: string
+                bucketPolicy:
+                  description: "a json string that sets a custom BucketPolicy"
+                  type: string
+                bucketReplicationConfiguration:
+                  description: "schema for the BucketReplicationConfigurations API. Provides a S3 bucket replication configuration resource"
+                  type: object
+                  properties:
+                    role:
+                      description: "ARN of the IAM role for Amazon S3 to assume when replicating the objects"
+                      type: string
+                    rule:
+                      description: "List of configuration blocks describing the rules managing the replication. See below"
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          deleteMarkerReplication:
+                            description: "Whether delete markers are replicated. This argument is only valid with V2 replication configurations"
+                            type: object
+                            properties:
+                              status:
+                                description: "Whether delete markers should be replicated. Either `Enabled` or `Disabled`"
+                                type: string
+                                enum:
+                                  - Enabled
+                                  - Disabled
+                          destination:
+                            description: "Specifies the destination for the rule"
+                            type: object
+                            properties:
+                              accessControlTranslation:
+                                description: "Configuration block that specifies the overrides to use for object owners on replication. See below. Specify this only in a cross-account scenario (where source and destination bucket owners are not the same), and you want to change replica ownership to the AWS account that owns the destination bucket. If this is not specified in the replication configuration, the replicas are owned by same AWS account that owns the source object. Must be used in conjunction with account owner override configuration"
+                                type: object
+                                properties:
+                                  owner:
+                                    description: "Specifies the replica ownership. For default and valid values, see PUT bucket replication in the Amazon S3 API Reference."
+                                    type: string
+                              account:
+                                description: "Account ID to specify the replica ownership. Must be used in conjunction with access_control_translation override configuration"
+                                type: string
+                              bucket:
+                                description: "ARN of the bucket where you want Amazon S3 to store the results"
+                                type: string
+                              bucketRef:
+                                description: "Reference to a Bucket in s3 to populate bucket"
+                                type: object
+                                properties:
+                                  name:
+                                    description: "Name of the referenced object"
+                                    type: string
+                                  policy:
+                                    description: "Policies for referencing"
+                                    type: object
+                                    properties:
+                                      resolution:
+                                        type: string
+                                      resolve:
+                                        type: string
+                                required:
+                                  - name
+                              bucketSelector:
+                                description: "Selector for a Bucket in s3 to populate bucket"
+                                type: object
+                                properties:
+                                  matchControllerRef:
+                                    type: boolean
+                                  matchLabels:
+                                    type: object
+                                    additionalProperties: true
+                                  policy:
+                                    type: object
+                                    properties:
+                                      resolution:
+                                        type: string
+                                      resolve:
+                                        type: string
+                              encryptionConfiguration:
+                                description: "Configuration block that provides information about encryption. See below. If source_selection_criteria is specified, you must specify this element"
+                                type: object
+                                properties:
+                                  replicaKmsKeyId:
+                                    type: string
+                                  replicaKmsKeyIdRef:
+                                    description: "Reference to a Key in kms to populate replicaKmsKeyId"
+                                    type: object
+                                    properties:
+                                      name:
+                                        type: string
+                                      policy:
+                                        type: object
+                                        properties:
+                                          resolution:
+                                            type: string
+                                          resolve:
+                                            type: string
+                                    required:
+                                      - name
+                                  replicaKmsKeyIdSelector:
+                                    description: "Selector for a Key in kms to populate replicaKmsKeyId"
+                                    type: object
+                                    properties:
+                                      matchControllerRef:
+                                        type: boolean
+                                      matchLabels:
+                                        type: object
+                                        additionalProperties: true
+                                      policy:
+                                        type: object
+                                        properties:
+                                          resolution:
+                                            type: string
+                                          resolve:
+                                            type: string
+                              metrics:
+                                description: "Configuration block that specifies replication metrics-related settings enabling replication metrics and events"
+                                type: object
+                                properties:
+                                  eventThreshold:
+                                    description: "Configuration block that specifies the time threshold for emitting the s3:Replication:OperationMissedThreshold event"
+                                    type: object
+                                    properties:
+                                      minutes:
+                                        description: "Time in minutes"
+                                        type: number
+                                  status:
+                                    description: "Whether the existing objects should be replicated"
+                                    type: string
+                                    enum:
+                                      - Enabled
+                                      - Disabled
+                              replicationTime:
+                                description: "Configuration block that specifies S3 Replication Time Control (S3 RTC), including whether S3 RTC is enabled and the time when all objects and operations on objects must be replicated. See below. Replication Time Control must be used in conjunction with metrics"
+                                type: object
+                                properties:
+                                  status:
+                                    description: "Whether the existing objects should be replicated"
+                                    type: string
+                                    enum:
+                                      - Enabled
+                                      - Disabled
+                                  time:
+                                    description: "Configuration block specifying the time by which replication should be complete for all objects and operations on objects"
+                                    type: object
+                                    properties:
+                                      minutes:
+                                        description: "Time in minutes"
+                                        type: number
+                              storageClass:
+                                description: "The storage class used to store the object. By default, Amazon S3 uses the storage class of the source object to create the object replica"
+                                type: string
+                          existingObjectReplication:
+                            description: "Replicate existing objects in the source bucket according to the rule configurations"
+                            type: object
+                            properties:
+                              status:
+                                description: "Whether the existing objects should be replicated. Either `Enabled` or `Disabled`"
+                                type: string
+                                enum:
+                                  - Enabled
+                                  - Disabled
+                          filter:
+                            description: "Filter that identifies subset of objects to which the replication rule applies"
+                            type: object
+                            properties:
+                              and:
+                                description: "Configuration block for specifying rule filters. This element is required only if you specify more than one filter. See and below for more details"
+                                type: object
+                                properties:
+                                  prefix:
+                                    description: "Object key name prefix identifying one or more objects to which the rule applies. Must be less than or equal to 1024 characters in length"
+                                    type: string
+                                  tags:
+                                    description: "Map of tags (key and value pairs) that identifies a subset of objects to which the rule applies. The rule applies only to objects having all the tags in its tagset"
+                                    type: object
+                                    additionalProperties: true
+                              prefix:
+                                description: "Object key name prefix identifying one or more objects to which the rule applies. Must be less than or equal to 1024 characters in length"
+                                type: string
+                              tag:
+                                description: "Configuration block for specifying a tag key and value"
+                                type: object
+                                properties:
+                                  key:
+                                    type: string
+                                  value:
+                                    type: string
+                          id:
+                            description: "Unique identifier for the rule. Must be less than or equal to 255 characters in length"
+                            type: string
+                          prefix:
+                            description: "Object key name prefix identifying one or more objects to which the rule applies. Must be less than or equal to 1024 characters in length"
+                            type: string
+                          priority:
+                            description: "Priority associated with the rule. Priority should only be set if filter is configured. If not provided, defaults to 0. Priority must be unique between multiple rules"
+                            type: number
+                          sourceSelectionCriteria:
+                            description: "Specifies special object selection criteria"
+                            type: object
+                            properties:
+                              replicaModifications:
+                                description: "Configuration block that you can specify for selections for modifications on replicas. Amazon S3 doesn't replicate replica modifications by default. In the latest version of replication configuration (when filter is specified), you can specify this element and set the status to Enabled to replicate modifications on replicas"
+                                type: object
+                                properties:
+                                  status:
+                                    type: string
+                              sseKmsEncryptedObjects:
+                                description: "Configuration block for filter information for the selection of Amazon S3 objects encrypted with AWS KMS. If specified, replica_kms_key_id in destination encryption_configuration must be specified as well"
+                                type: object
+                                properties:
+                                  status:
+                                    type: string
+                          status:
+                            description: "Status of the rule. Either `Enabled` or `Disabled`. The rule is ignored if status is not `Enabled`"
+                            type: string
+                            enum:
+                              - Enabled
+                              - Disabled
+                  required:
+                    - role
+                    - rule
+                region:
+                  type: string
+                  default: us-west-2
+                defaultControlPolicy:
+                  description: "Boolean that enables the default access control policy recomended by doi. Sets ownership controls and sets ACL to private"
+                  type: boolean
+                  default: true
+                defaultServerSideEncryption:
+                  description: "Boolean that enables default server-side encryption AES256"
+                  type: boolean
+                  default: true
+                versioning:
+                  type: boolean
+                  default: true
+                serviceAccount:
+                  description: "Application service account that can access the S3 bucket. Ignored if bucketPolicy is set"
+                  type: string
+                awsAccounts:
+                  description: "Optional array of AWS account IDs that can access shared resources. Only used if serviceAccount is set. Defaults to current account."
+                  type: array
+                  items:
+                    type: string
+                vpcEndPoint:
+                  description: "Optional ID of the VPC endpoint to allow access from. Overrides the environment default"
+                  type: string
+                tags:
+                  description: "Key-value map of resource tags"
+                  type: object
+                  additionalProperties:
+                    type: string
+                notifications:
+                  description: "Optional array of notifications on bucket events"
+                  type: array
+                  default: []
+                  items:
+                    type: object
+                    properties:
+                      topicArn:
+                        type: string
+                      topicLabels:
+                        type: object
+                        additionalProperties:
+                          type: string
+                      queueArn:
+                        type: string
+                      queueLabels:
+                        type: object
+                        additionalProperties:
+                          type: string
+                      events:
+                        type: array
+                        items:
+                          type: string
+                      filterPrefix:
+                        type: string
+                      filterSuffix:
+                        type: string
+                      identifier:
+                        type: string
+                lifecycleRules:
+                  description: "Optional array of lifecycle configurations for the bucket"
+                  type: array
+                  default: []
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      status:
+                        type: string
+                      filter:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            objectSizeGreaterThan:
+                              type: number
+                            objectSizeLessThan:
+                              type: number
+                            prefix:
+                              type: string
+                            tags:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  key:
+                                    type: string
+                                  value:
+                                    type: string
+                      transition:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date:
+                              type: string
+                            days:
+                              type: number
+                            storageClass:
+                              type: string
+                      expiration:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            date:
+                              type: string
+                            days:
+                              type: number
+                            expiredObjectDeleteMarker:
+                              type: boolean
+                      noncurrentVersionTransition:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            noncurrentDays:
+                              type: number
+                            storageClass:
+                              type: string
+                      noncurrentVersionExpiration:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            noncurrentDays:
+                              type: number
+                      abortIncompleteMultipartUpload:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            daysAfterInitiation:
+                              type: number
+            status:
+              type: object
+              properties:
+                resources:
+                  type: array
+                  description: "Statuses of managed resources"
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      kind:
+                        type: string
+                      conditions:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: true
+              x-kubernetes-preserve-unknown-fields: true
+          required:
+            - bucketName

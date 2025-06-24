@@ -1,0 +1,7 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Configuration
+metadata:
+  name: doi-s3-bucket-configuration
+spec:
+  package: index.docker.io/cadhcs/doi-crossplane-platform:test
+  packagePullPolicy: Always

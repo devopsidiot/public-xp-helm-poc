@@ -1,0 +1,48 @@
+apiVersion: devopsidiot.com/v1alpha1
+kind: Storage
+metadata:
+  name: doi-s3-bucket-test
+spec:
+  bucketName: doi-s3-bucket
+  region: us-west-2
+  serviceAccount: "fdrsystemuser"
+  tags:
+    tenant: doi
+    team: pipeline
+    service: crossplane
+    environment: dev
+    crossplane-managed: "true"
+
+#Example on setting notifications for SQS and SNS.
+
+# apiVersion: devopsidiot.com/v1alpha1
+# kind: Storage
+# metadata:
+#   name: doi-s3-bucket-test2
+# spec:
+#   bucketName: doi-s3-bucket2
+#   region: us-west-2
+#   notifications:
+#     - topicLabels:
+#         crossplane.io/claim-name: sns-test-standard
+#         crossplane.io/claim-namespace: default
+#       events:
+#         - s3:ObjectCreated:*
+#         - s3:ObjectRemoved:*
+#       identifier: topic-test-one
+#       filterSuffix: .png 
+#       filterPrefix: test1/
+#     - queueArn: arn:aws:sqs:us-west-2:927256257993:elitest
+#       events:
+#         - s3:ObjectCreated:*
+#         - s3:ObjectRemoved:*
+#       identifier: queue-test-two
+#       filterSuffix: .jpg
+#       filterPrefix:  test2/
+#   tags:
+#     tenant: doi
+#     team: pipeline
+#     service: crossplane
+#     environment: dev
+#     crossplane-managed: "true"
+

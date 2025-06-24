@@ -1,0 +1,46 @@
+apiVersion: devopsidiot.com/v1alpha1
+kind: Storage
+metadata:
+  name: doi-s3-bucket-test2
+spec:
+  bucketName: doi-s3-bucket2
+  region: us-west-2
+  notifications:
+    - queueArn: arn:aws:sqs:us-west-2:927256257993:elitest
+      events:
+        - s3:ObjectCreated:*
+        - s3:ObjectRemoved:*
+      identifier: queue-test-one
+      filterSuffix: .jpg
+      filterPrefix:  queuetest1/
+    - queueArn: arn:aws:sqs:us-west-2:927256257993:elitest2
+      events:
+        - s3:ObjectCreated:*
+        - s3:ObjectRemoved:*
+      identifier: queue-test-two
+      filterSuffix: .jpg
+      filterPrefix:  queuetest2/
+    - topicArn: arn:aws:sns:us-west-2:927256257993:elitest
+      events:
+        - s3:ObjectCreated:*
+      identifier: topic1
+      filterPrefix: topic1/
+      filterSuffix: .txt
+    - topicArn: arn:aws:sns:us-west-2:927256257993:elitest2
+      events:
+        - s3:ObjectCreated:*
+      identifier: topic2
+      filterPrefix: topic2/
+      filterSuffix: .txt
+    - topicArn: arn:aws:sns:us-west-2:927256257993:elitest3
+      events:
+        - s3:ObjectCreated:*
+      identifier: topic3
+      filterPrefix: topic3/
+      filterSuffix: .txt
+  tags:
+    tenant: doi
+    team: pipeline
+    service: crossplane
+    environment: dev
+    crossplane-managed: "true"
